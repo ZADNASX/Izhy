@@ -338,6 +338,8 @@ select.field{max-width:100%; flex:1 1 220px}
   <div class="row"><b>Voix de maman</b><button class="seg studiobtn" id="bStudio">🎙️ Studio maman</button></div>
   <div class="row"><label for="vFr"><b>Voix française</b></label><select id="vFr" class="field"></select><button class="seg" id="vTest">▶ Tester</button></div>
   <div class="row"><label for="vAr"><b>Voix arabe</b></label><select id="vAr" class="field"></select></div>
+  <div class="row"><label for="vEn"><b>Voix anglaise</b></label><select id="vEn" class="field"></select></div>
+  <div class="row"><b>Langue des consignes</b><span id="instrLang" style="display:flex;gap:8px;flex-wrap:wrap"></span></div>
   <div class="row"><label for="kidName"><b>Prénom</b></label><input id="kidName" class="field" maxlength="30" placeholder="Prénom de l'enfant" autocomplete="off"></div>
   <div class="row"><b>Bravo de maman</b><button class="seg" id="voixRec" hidden>🎙️ Enregistrer au micro</button><label class="seg" for="voixFile" id="voixAdd">🎤 Ajouter un fichier</label><input type="file" id="voixFile" class="vh" accept="audio/*,.m4a,.mp3,.aac,.wav,.ogg,.opus,.caf" multiple></div>
   <div class="vmsg" id="voixMsg" aria-live="polite"></div>
@@ -515,7 +517,30 @@ const READ=[
 ];
 
 const STICKERS=[["🦁","lion"],["🐼","panda"],["🐸","grenouille"],["🐰","lapin"],["🦊","renard"],["🐨","koala"],["🐯","tigre"],["🐵","singe"],["🐧","pingouin"],["🦄","licorne"],["🐢","tortue"],["🐙","pieuvre"],["🦋","papillon"],["🐞","coccinelle"],["🐝","abeille"],["🐬","dauphin"],["🐳","baleine"],["🦒","girafe"],["🦓","zèbre"],["🐘","éléphant"],["🦔","hérisson"],["🐿️","écureuil"],["🦉","hibou"],["🐥","poussin"],["🐮","vache"],["🐷","cochon"],["🐶","chien"],["🐱","chat"],["🦕","dinosaure"],["🐻","ours"]];
-const BRAVO_FR=["Bravo !","Super !","Génial !","Très bien !"], BRAVO_AR=["أحسنت!","ممتاز!","رائع!","جيد جدًا!"];
+/* Consignes : tout ce que l'appli DIT aux enfants, en français, arabe et anglais. */
+const TXT={
+ fr:{owl:["Coucou ! Choisis un jeu.","On écrit ou on lit ?","J'adore les lettres !","Tu vas y arriver !"],
+  where:"Où est la lettre",whereQ:"Où est la lettre ?",yes:"Oui !",again:"Essaie encore",like:"comme",
+  bravo:["Bravo !","Super !","Génial !","Très bien !"],tabW:"Écrire",tabR:"Lire",album:"Mon album",
+  syl:"Écoute bien. Tape sur le tambour pour chaque syllabe !",imagier:"L'imagier. Touche une image !",
+  graph:GRAPH.map(x=>x[4])},
+ ar:{owl:["مرحبًا! اختر لعبة.","نكتب أم نقرأ؟","أحب الحروف!","ستنجح!"],
+  where:"أين حرف",whereQ:"أين الحرف؟",yes:"نعم!",again:"حاول مرة أخرى",like:"مثل",
+  bravo:["أحسنت!","ممتاز!","رائع!","جيد جدًا!"],tabW:"اكتب",tabR:"اقرأ",album:"ألبومي",
+  syl:"استمع جيدًا. اضرب الطبل لكل مقطع!",imagier:"الصور. المس صورة!",
+  graph:["المطر ينزل. ارسم من الأعلى إلى الأسفل.","الدودة تتقدم. ارسم من اليسار إلى اليمين.","ننزلق على المنزلقة!","البالون. ارسم دائرة كبيرة.","أمواج البحر. ترتفع وتنخفض.","الجبال. اصعد ثم انزل.","الجسور. ارسم أقواسًا.","الحلزون. ندور وندور."]},
+ en:{owl:["Hello! Pick a game.","Shall we write or read?","I love letters!","You can do it!"],
+  where:"Where is the letter",whereQ:"Where is the letter?",yes:"Yes!",again:"Try again",like:"for",
+  bravo:["Well done!","Great!","Awesome!","Very good!"],tabW:"Write",tabR:"Read",album:"My album",
+  syl:"Listen carefully. Tap the drum for each syllable!",imagier:"Picture book. Touch a picture!",
+  graph:["The rain falls. Draw from top to bottom.","The caterpillar moves. Draw from left to right.","We slide down the slide!","The balloon. Draw a big circle.","The waves of the sea. Up and down.","The mountains. Go up, then down.","The bridges. Make some bumps.","The snail. Round and round."]}
+};
+/* Langue des consignes : « auto » = celle de l'activité (comme avant), sinon le choix des parents. */
+const ilang=act=>{ const o=opts.instr||"auto"; return o==="auto"?(act==="ar"?"ar":"fr"):o; };
+const tx=(k,act="fr")=>TXT[ilang(act)][k];
+const part=(k,act="fr")=>({t:tx(k,act),l:ilang(act)});
+const sp=(k,act="fr")=>say([part(k,act)],ilang(act));
+const LANG_TAG={fr:"fr-FR",ar:"ar-SA",en:"en-US"};
 const CHALKS=[["#FFD166","jaune"],["#FF8FAB","rose"],["#7FD1FF","bleu"],["#B8E986","vert"],["#F7F3E8","blanc"]];
 /* req : part du chemin à parcourir · r : distance acceptée (cases sur 120) · tol : largeur hors-piste tolérée · cover/out : réglages des lettres sans guide */
 const LEVELS={
@@ -538,14 +563,13 @@ const reduced=()=>matchMedia("(prefers-reduced-motion: reduce)").matches;
 /* ================= VOIX ET SONS ================= */
 let voices=[]; const loadVoices=()=>{ try{ voices=speechSynthesis.getVoices(); }catch(e){} };
 if("speechSynthesis" in window){ loadVoices(); speechSynthesis.onvoiceschanged=loadVoices; }
-let warnedAr=false;
+const warned={};
 function _oldSpeak(text,lang){
   if(!("speechSynthesis" in window)) return;
   const v=voices.find(v=>v.lang&&v.lang.toLowerCase().startsWith(lang));
-  if(lang==="ar"&&!v&&!warnedAr){ warnedAr=true; toast("Pas de voix arabe sur cette tablette. Les parents peuvent en ajouter dans les réglages."); }
   try{
     speechSynthesis.cancel();
-    const u=new SpeechSynthesisUtterance(text); u.lang=lang==="ar"?"ar-SA":"fr-FR"; if(v) u.voice=v; u.rate=.8; u.pitch=1.15;
+    const u=new SpeechSynthesisUtterance(text); u.lang=LANG_TAG[lang]||"fr-FR"; if(v) u.voice=v; u.rate=.8; u.pitch=1.15;
     speechSynthesis.speak(u);
   }catch(e){}
 }
@@ -860,13 +884,13 @@ function voiceScore(v){
   let s=0; const n=v.name||"";
   if(/premium|enhanced|amélior|natural|neural|siri/i.test(n)) s+=4;
   if(/google/i.test(n)) s+=2;
-  if(/^(fr-FR|ar-SA)$/i.test(v.lang)) s+=1;
+  if(/^(fr-FR|ar-SA|en-US|en-GB)$/i.test(v.lang)) s+=1;
   return s;
 }
 const voicesFor=lang=>voices.filter(v=>v.lang&&v.lang.toLowerCase().startsWith(lang));
 const bestVoice=lang=>voicesFor(lang).sort((a,b)=>voiceScore(b)-voiceScore(a))[0]||null;
 function pickVoice(lang){
-  const want=lang==="ar"?opts.voiceAr:opts.voiceFr;
+  const want=lang==="ar"?opts.voiceAr:lang==="en"?opts.voiceEn:opts.voiceFr;
   return (want&&voices.find(v=>v.name===want))||bestVoice(lang);
 }
 const ttsText=a=>a.startsWith("syl:")?(SYL_SAY[a.slice(4)]||a.slice(4)):a;
@@ -874,10 +898,10 @@ function ttsOne(text,lang){
   return new Promise(res=>{
     if(!("speechSynthesis" in window)) return setTimeout(res,500);
     const v=pickVoice(lang);
-    if(lang==="ar"&&!v&&!warnedAr){ warnedAr=true; toast("Pas de voix arabe sur cette tablette. Maman peut enregistrer les mots dans le Studio, ou installer une voix arabe dans les réglages."); }
+    if((lang==="ar"||lang==="en")&&!v&&!warned[lang]){ warned[lang]=true; toast(lang==="ar"?"Pas de voix arabe sur cette tablette. Maman peut enregistrer les mots dans le Studio, ou installer une voix arabe dans les réglages.":"Pas de voix anglaise sur cette tablette. Maman peut enregistrer les phrases dans le Studio, ou installer une voix anglaise dans les réglages."); }
     let done=false; const fin=()=>{ if(!done){ done=true; res(); } };
     try{
-      const u=new SpeechSynthesisUtterance(text); u.lang=lang==="ar"?"ar-SA":"fr-FR"; if(v) u.voice=v;
+      const u=new SpeechSynthesisUtterance(text); u.lang=LANG_TAG[lang]||"fr-FR"; if(v) u.voice=v;
       u.rate=.85; u.pitch=1.05; u.onend=fin; u.onerror=fin; speechSynthesis.speak(u);
     }catch(e){ fin(); }
     setTimeout(fin,900+text.length*110);
@@ -902,9 +926,10 @@ async function say(parts,lang="fr",onPart){
   for(let i=0;i<parts.length;i++){
     if(tok!==sayTok) return false;
     onPart&&onPart(i);
-    const r=PH.get(lang+"|"+parts[i]);
+    const p=parts[i], pt=typeof p==="object"?p.t:p, pl=typeof p==="object"?p.l:lang;
+    const r=PH.get(pl+"|"+pt);
     let ok=false; if(r) ok=await playRec(r,tok);
-    if(!ok&&tok===sayTok) await ttsOne(ttsText(parts[i]),lang);
+    if(!ok&&tok===sayTok) await ttsOne(ttsText(pt),pl);
     if(i<parts.length-1) await wait(onPart?300:140);
   }
   return tok===sayTok;
@@ -950,7 +975,7 @@ function catalog(){
   g("Phrases","fr",[
     ["Écoute bien. Tape sur le tambour pour chaque syllabe !","Tape les syllabes"],["Où est la lettre","suivi du nom de la lettre"],["Oui !"],["Essaie encore"],["comme","« bé comme ballon »"],
     ["L'imagier. Touche une image !"],["Écrire","onglet"],["Lire","onglet"],["Mon album"],["Français","bouton de langue"],
-    ...OWL_LINES.map(t=>[t,"le hibou"]),...GRAPH.map(x=>[x[4],"graphisme · "+x[1]]),...THEMES.map(t=>[t[0],"thème de l'imagier"])]);
+    ...TXT.fr.owl.map(t=>[t,"le hibou"]),...GRAPH.map(x=>[x[4],"graphisme · "+x[1]]),...THEMES.map(t=>[t[0],"thème de l'imagier"])]);
   g("Imagier","fr",WORDS.map(w=>[w.fr,"imagier et syllabes"]));
   g("Lettres","fr",Object.keys(FR_NAMES).map(k=>[FR_NAMES[k],"nom de la lettre "+k,k+" · « "+FR_NAMES[k]+" »"]));
   g("Chiffres","fr",FR_NUM.map((w,i)=>[w,"chiffre "+i]));
@@ -959,6 +984,10 @@ function catalog(){
   g("عبارات وكلمات","ar",[["أين حرف","« où est la lettre »"],["نعم!","« oui ! »"],["حاول مرة أخرى","« essaie encore »"],["الصور. المس صورة!","imagier"],["العربية","bouton de langue"],
     ...THEMES.map(t=>[t[1],"thème : "+t[0]]),...WORDS.map(w=>[w.ar,w.fr]),...AR_LET.map(a=>[a[3],"mot du "+a[2]]),...AR_NUM.map((w,i)=>[w,"chiffre "+i])]);
   g("الحروف","ar",AR_LET.map(a=>[a[1],"lettre "+a[2],a[0]+" · "+a[1]]));
+  [["en","Consignes · English"],["ar","التعليمات"]].forEach(([l,name])=>{ const T=TXT[l];
+    g(name,l,[...T.owl.map(t=>[t,"le hibou"]),[T.where,"suivi du nom de la lettre"],[T.yes,"« oui ! »"],[T.again,"« essaie encore »"],[T.like,"mot de liaison : « bé comme ballon »"],
+      ...T.bravo.map(t=>[t,"bravo"]),[T.tabW,"onglet Écrire"],[T.tabR,"onglet Lire"],[T.album,"bouton Mon album"],[T.syl,"jeu des syllabes"],[T.imagier,"imagier"],
+      ...T.graph.map((t,i)=>[t,"graphisme · "+GRAPH[i][1]])]); });
   return CATALOG=groups;
 }
 const recCount=()=>catalog().reduce((n,gr)=>n+gr.rows.filter(r=>PH.has(r.k)).length,0);
@@ -1021,11 +1050,11 @@ $("studioClose").onclick=()=>{ closeStudio(); renderParents(); openSheet("parent
 
 /* ---- choix de la voix de synthèse (pour ce qui n'est pas encore enregistré) ---- */
 function renderVoicePick(){
-  [["fr","voiceFr","vFr"],["ar","voiceAr","vAr"]].forEach(([lang,key,id])=>{
+  [["fr","voiceFr","vFr"],["ar","voiceAr","vAr"],["en","voiceEn","vEn"]].forEach(([lang,key,id])=>{
     const sel=$(id), list=voicesFor(lang), best=bestVoice(lang);
-    sel.innerHTML=list.length?list.sort((a,b)=>voiceScore(b)-voiceScore(a)).map(v=>`<option value="${v.name.replace(/"/g,"&quot;")}">${v.name}${v===best?" (recommandée)":""}</option>`).join(""):`<option value="">${lang==="ar"?"Aucune voix arabe installée":"Aucune voix française installée"}</option>`;
+    sel.innerHTML=list.length?list.sort((a,b)=>voiceScore(b)-voiceScore(a)).map(v=>`<option value="${v.name.replace(/"/g,"&quot;")}">${v.name}${v===best?" (recommandée)":""}</option>`).join(""):`<option value="">${lang==="ar"?"Aucune voix arabe installée":lang==="en"?"Aucune voix anglaise installée":"Aucune voix française installée"}</option>`;
     sel.value=(opts[key]&&list.some(v=>v.name===opts[key]))?opts[key]:(best?best.name:"");
-    sel.onchange=()=>{ opts[key]=sel.value; save(); say([lang==="ar"?"أحسنت!":"Bravo ! Tu as bien travaillé."],lang); };
+    sel.onchange=()=>{ opts[key]=sel.value; save(); say([lang==="ar"?"أحسنت!":lang==="en"?"Well done! You worked hard.":"Bravo ! Tu as bien travaillé."],lang); };
   });
 }
 $("vTest").onclick=()=>say(["Bonjour ! Je suis la voix de l'ardoise."],"fr");
@@ -1056,15 +1085,16 @@ $("restoreFile").onchange=async e=>{
 let bravoCb={};
 function hideBravo(){ $("bravo").classList.remove("on"); }
 function celebrate(lang,fresh,again,next,nextLabel){
-  const st=fresh?STICKERS[(totalStars()-1)%STICKERS.length]:null, k=rnd(BRAVO_FR.length);
-  const nm=opts.name||"", fr=nm?BRAVO_FR[k].replace(" !"," "+nm+" !"):BRAVO_FR[k];
+  const st=fresh?STICKERS[(totalStars()-1)%STICKERS.length]:null, k=rnd(TXT.fr.bravo.length), il=ilang(lang);
+  const nm=opts.name||"", withName=(t,l)=>!nm?t:l==="ar"?t+" "+nm:l==="en"?t.replace("!",", "+nm+"!"):t.replace(" !"," "+nm+" !");
+  const fr=withName(TXT.fr.bravo[k],"fr"), said=withName(TXT[il].bravo[k],il);
   $("bbig").innerHTML=emo(st?st[0]:"⭐"); $("bgift").textContent=st?"Nouvel autocollant : "+st[1]:"";
-  $("bw").textContent=fr; $("bwa").textContent=BRAVO_AR[k]; $("bNext2").textContent=nextLabel;
+  $("bw").textContent=il==="en"?said:fr; $("bwa").textContent=TXT.ar.bravo[k]; $("bNext2").textContent=nextLabel;
   bravoCb={again,next}; stopSay();
   $("bravo").classList.add("on"); burst(); fanfare();
   setTimeout(async()=>{
     if(voix.length){ if(await playVoix(voix[rnd(voix.length)])) return; toast("La voix de maman n'a pas pu être lue : vérifiez-la dans l'espace parents."); }
-    speak(lang==="ar"?BRAVO_AR[k]+(nm?" "+nm:""):fr+(st?" Tu gagnes un "+st[1]+" !":""),lang);
+    speak(il==="fr"?fr+(st?" Tu gagnes un "+st[1]+" !":""):said,il);
   },650);
 }
 $("bAgain").onclick=()=>{ hideBravo(); bravoCb.again&&bravoCb.again(); };
@@ -1104,7 +1134,7 @@ function reset(){ strokes=[]; won=false; done=isPath()?geo(item()).map(()=>false
 function show(i,{say:talk=true}={}){
   const s=set(); cur.i=(i+s.items.length)%s.items.length;
   stopDemo(true); reset(); updateBar();
-  loadFont().then(()=>{ resize(); startDemo(); }); if(talk) say(item().say,s.lang);
+  loadFont().then(()=>{ resize(); startDemo(); }); if(talk) sayItem();
 }
 function loadFont(){
   if(isPath()||!document.fonts||!document.fonts.load) return Promise.resolve();
@@ -1123,7 +1153,12 @@ function goHome(){
   showScreen("home"); renderHome();
 }
 $("bHome").onclick=$("gHome").onclick=goHome;
-$("bSay").onclick=$("pic").onclick=()=>say(item().say,set().lang);
+function sayItem(){
+  const s=set(), it=item(), il=ilang(s.lang);
+  if(s.id==="graph") return say([{t:TXT[il].graph[cur.i],l:il}],il);
+  say(it.say.map(p=>p==="comme"?{t:tx("like",s.lang),l:il}:p),s.lang);
+}
+$("bSay").onclick=$("pic").onclick=sayItem;
 $("bShow").onclick=()=>{ if(won) return; if(reduced()) toast("Suis le point vert et la flèche 🟢"); else startDemo(); };
 $("bClear").onclick=()=>{ stopDemo(true); reset(); redraw(); };
 $("bUndo").onclick=()=>{ if(won||!strokes.length) return; strokes.pop(); done=done.map(()=>false); if(strokes.length) check(true); else redraw(); };
@@ -1139,8 +1174,14 @@ CHALKS.forEach(([c,n],i)=>{ const b=document.createElement("button"); b.classNam
 window.addEventListener("resize",()=>{ if($("trace").classList.contains("on")) resize(); });
 
 /* ================= ACCUEIL ================= */
-const OWL_LINES=["Coucou ! Choisis un jeu.","On écrit ou on lit ?","J'adore les lettres !","Tu vas y arriver !"];
-$("owl").onclick=()=>{ const t=OWL_LINES[rnd(OWL_LINES.length)]; $("bubble").textContent=t; speak(t,"fr"); };
+function applyLang(){
+  const il=ilang("fr");
+  $("tabW").innerHTML=`<span class="emo">✏️</span>${TXT[il].tabW}`; $("tabR").innerHTML=`<span class="emo">📖</span>${TXT[il].tabR}`;
+  $("bAlbum").innerHTML=`<span class="emo">📒</span>${TXT[il].album} <b id="total">0</b>`;
+  $("bubble").textContent=TXT[il].owl[0]; document.documentElement.lang=il==="ar"?"ar":il==="en"?"en":"fr";
+  if($("home").classList.contains("on")) renderHome();
+}
+$("owl").onclick=()=>{ const il=ilang("fr"), t=TXT[il].owl[rnd(4)]; $("bubble").textContent=t; say([{t,l:il}],il); };
 function renderHome(){
   const tab=opts.tab==="r"?"r":"w";
   $("tabW").setAttribute("aria-selected",tab==="w"); $("tabR").setAttribute("aria-selected",tab==="r");
@@ -1154,8 +1195,8 @@ function renderHome(){
   });
   $("total").textContent=totalStars();
 }
-$("tabW").onclick=()=>{ opts.tab="w"; save(); renderHome(); speak("Écrire","fr"); };
-$("tabR").onclick=()=>{ opts.tab="r"; save(); renderHome(); speak("Lire","fr"); };
+$("tabW").onclick=()=>{ opts.tab="w"; save(); renderHome(); sp("tabW"); };
+$("tabR").onclick=()=>{ opts.tab="r"; save(); renderHome(); sp("tabR"); };
 function openSheet(id){ $(id).classList.add("on"); }
 function closeSheet(id){ $(id).classList.remove("on"); }
 document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>closeSheet(b.dataset.close));
@@ -1168,13 +1209,16 @@ function renderAlbum(){
     al.appendChild(c);
   });
 }
-$("bAlbum").onclick=()=>{ renderAlbum(); openSheet("albumSheet"); speak("Mon album","fr"); };
+$("bAlbum").onclick=()=>{ renderAlbum(); openSheet("albumSheet"); sp("album"); };
 
 /* Espace parents : il faut maintenir le bouton 2 secondes (un petit enfant tape, il ne maintient pas). */
 function renderParents(){
   const lv=$("levels"); lv.innerHTML="";
   Object.entries(LEVELS).forEach(([k,L])=>{ const b=document.createElement("button"); b.className="seg"; b.textContent=L.label; b.setAttribute("aria-pressed",k===opts.level);
     b.onclick=()=>{ opts.level=k; save(); renderParents(); }; lv.appendChild(b); });
+  const il=$("instrLang"); il.innerHTML="";
+  [["auto","Auto"],["fr","Français"],["ar","عربي"],["en","English"]].forEach(([k,lab])=>{ const b=document.createElement("button"); b.className="seg"+(k==="ar"?" ar":""); b.textContent=lab; b.setAttribute("aria-pressed",k===(opts.instr||"auto"));
+    b.onclick=()=>{ opts.instr=k; save(); renderParents(); applyLang(); if(k!=="auto"){ const l=ilang("fr"); say([{t:TXT[l].owl[0],l}],l); } }; il.appendChild(b); });
   $("bSound").textContent=opts.sound?"🔔 Activés":"🔕 Coupés"; $("bSound").setAttribute("aria-pressed",opts.sound);
   renderVoicePick(); renderStudioBtn();
 }
@@ -1211,13 +1255,13 @@ function startLettre(lang){
   G={kind:"lettre",lang,id:"lettre-"+lang,q:0,n:5,prev:null};
   openGame(lang==="ar"?"ابحث عن الحرف":"Trouve la lettre",lang); drawDots(); nextLettre();
 }
-function sayLettre(){ const t=G.target; G.lang==="ar"?say(["أين حرف",t.say],"ar"):say(["Où est la lettre",t.say],"fr"); }
+function sayLettre(){ const t=G.target; say([part("where",G.lang),{t:t.say,l:G.lang}],G.lang); }
 function nextLettre(){
   const pool=letterPool(G.lang); let t; do t=pool[rnd(pool.length)]; while(t.g===G.prev); G.prev=t.g;
   const ch=[t]; while(ch.length<(opts.level==="grand"?4:3)){ const c=pool[rnd(pool.length)]; if(!ch.some(x=>x.g===c.g)) ch.push(c); }
   G.target=t; G.locked=false; shuffle(ch);
   const ar=G.lang==="ar";
-  $("gstage").innerHTML=`<div class="prompt"><button class="owlmini" id="gOwl" aria-label="Réécouter">${ill("hibou")}</button><div class="bubble ${ar?"ar":""}">${ar?"أين الحرف؟":"Où est la lettre ?"} ${emo("🔊")}</div></div><div class="choices" id="choices"></div>`;
+  $("gstage").innerHTML=`<div class="prompt"><button class="owlmini" id="gOwl" aria-label="Réécouter">${ill("hibou")}</button><div class="bubble ${ilang(G.lang)==="ar"?"ar":""}">${tx("whereQ",G.lang)} ${emo("🔊")}</div></div><div class="choices" id="choices"></div>`;
   ch.forEach((c,i)=>{
     const b=document.createElement("button"); b.className="choice"; b.textContent=c.g; b.style.setProperty("--c",`var(${COLORS[i%4]})`);
     b.style.fontFamily=ar?FONT_AR:FONT_BATON; b.setAttribute("aria-label",c.g);
@@ -1229,9 +1273,9 @@ function pickLettre(b,c){
   if(G.locked) return; const t=G.target, ar=G.lang==="ar";
   if(c.g===t.g){
     G.locked=true; b.classList.add("ok"); ding(); G.q++; drawDots();
-    say([ar?"نعم!":"Oui !",t.say],G.lang);
+    say([part("yes",G.lang),{t:t.say,l:G.lang}],G.lang);
     G.t=setTimeout(()=>G.q>=G.n?finishGame():nextLettre(),1500);
-  }else{ b.classList.add("no"); b.disabled=true; bonk(); speak(ar?"حاول مرة أخرى":"Essaie encore",G.lang); }
+  }else{ b.classList.add("no"); b.disabled=true; bonk(); sp("again",G.lang); }
 }
 
 /* ---- Tape les syllabes ---- */
@@ -1241,7 +1285,7 @@ function nextSyl(){
   G.word=w; G.taps=0; G.locked=false; clearTimeout(G.t);
   $("gstage").innerHTML=`<div class="sylcard"><button class="sylart" id="sylArt" aria-label="Réécouter le mot">${ill(w.id)}</button><div class="sylword" id="sylWord">${w.fr.toUpperCase()}</div></div><div class="claps" id="claps" aria-live="polite"></div><button class="drum" id="drum" aria-label="Tambour : tape une fois par syllabe">${emo("🥁")}</button><div class="bubble" id="sylTip">Tape sur le tambour !</div>`;
   $("sylArt").onclick=sayWord; $("drum").onclick=tapDrum;
-  if(G.first){ G.first=false; say(["Écoute bien. Tape sur le tambour pour chaque syllabe !",w.fr],"fr"); } else say([w.fr],"fr");
+  if(G.first){ G.first=false; say([part("syl","fr"),{t:w.fr,l:"fr"}],"fr"); } else say([w.fr],"fr");
 }
 function sayWord(){ speak(G.word.fr,"fr"); }
 function tapDrum(){
@@ -1269,7 +1313,7 @@ function checkSyl(){
 function startImagier(){
   G={kind:"img",id:"imagier",lang:opts.imgLang==="ar"?"ar":"fr",theme:0};
   openGame("Imagier","fr"); renderImg();
-  speak(G.lang==="ar"?"الصور. المس صورة!":"L'imagier. Touche une image !",G.lang);
+  sp("imagier",G.lang);
 }
 const wordIn=(w,lang)=>lang==="ar"?w.ar:w.fr.toUpperCase();
 function renderImg(){
@@ -1303,7 +1347,7 @@ $("gSay").onclick=()=>{ if(!G) return; if(G.kind==="lettre") sayLettre(); else i
 
 /* ================= DÉMARRAGE ================= */
 $("owl").innerHTML=ill("hibou"); $("owlB").innerHTML=ill("hibou");
-renderHome(); initVoix(); loadPhrases();
+applyLang(); renderHome(); initVoix(); loadPhrases();
 if(STANDALONE&&"serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>
 
