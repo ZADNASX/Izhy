@@ -1,6 +1,6 @@
 // Mode hors ligne : garde l'appli et ses polices dans le cache de la tablette.
 // Changer VERSION à chaque mise à jour de index.html pour que les tablettes la récupèrent.
-const VERSION = "ardoise-v4";
+const VERSION = "ardoise-v5";
 const APP = ["./", "index.html", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", e => {
