@@ -234,6 +234,22 @@ select.field{max-width:100%; flex:1 1 220px}
 .srow .seg{height:50px; min-width:54px; background:var(--card); flex:none}
 .srow .seg.rec{font-size:22px}
 .srow .seg.live{background:#D93F4C; color:#fff}
+.recbox{position:fixed; inset:0; z-index:25; background:rgba(26,25,50,.6); display:none; place-items:center; padding:16px}
+.recbox.on{display:grid}
+.recbox .panel{background:var(--card); border-radius:34px; padding:26px 22px 22px; width:100%; max-width:560px; text-align:center; display:flex; flex-direction:column; gap:14px; animation:pop .25s ease-out}
+.recbox .step{font-size:16px; font-weight:700; color:var(--soft)}
+.recbox .phrase{font-family:var(--display); font-size:clamp(30px,6vw,46px); font-weight:600; line-height:1.15; overflow-wrap:anywhere}
+.recbox .phrase.ar{font-family:var(--ar)}
+.recbox .hint{color:var(--soft); font-size:16px; min-height:1.2em}
+.recbox .state{font-size:20px; font-weight:700; min-height:1.3em}
+.recbox .state.live{color:#D93F4C}
+.recbox .meter{height:12px; border-radius:12px; background:var(--empty); overflow:hidden}
+.recbox .meter i{display:block; height:100%; width:0; background:#D93F4C; border-radius:12px}
+.recbox .acts{display:flex; gap:12px; justify-content:center; flex-wrap:wrap}
+.recbox .big{height:84px; min-width:200px; font-size:24px; border-radius:26px}
+.recbox .go{background:#D93F4C; color:#fff; box-shadow:0 6px 0 #A82A35}
+.recbox .keep{background:var(--go); color:#fff; box-shadow:0 6px 0 #1F7A40}
+.recbox .quiet{height:56px; font-size:18px}
 .toast{position:fixed; left:50%; bottom:calc(20px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); background:var(--ink); color:var(--sky1); padding:13px 20px; border-radius:16px; font-size:18px; display:none; z-index:40; max-width:90%; text-align:center}
 .toast.on{display:block}
 @media (prefers-reduced-motion:reduce){ *,*::before,*::after{animation:none!important; transition:none!important} }
@@ -343,12 +359,23 @@ select.field{max-width:100%; flex:1 1 220px}
   <h2>Studio maman</h2>
   <p class="sub" id="studioCount"></p>
   <p class="tip" id="studioNoMic">Le micro marche dans la version installée de l'appli (adresse Izhy). Ici, vous pouvez seulement écouter et supprimer.</p>
-  <p class="tip">Appuyez sur 🎙️, dites le mot ou la phrase en gras, puis appuyez sur ⏹. Touchez un texte pour l'écouter. Tout ce qui n'est pas encore enregistré garde la voix de la tablette.</p>
+  <p class="tip">Appuyez sur 🎙️ à côté d'une phrase : un grand écran s'ouvre. Enregistrez, réécoutez, puis « Garder ». L'écran propose ensuite la phrase suivante. ▶ fait écouter un enregistrement. Tout ce qui n'est pas encore enregistré garde la voix de la tablette.</p>
   <div class="stabs" id="studioTabs"></div>
   <div class="vmsg" id="studioMsg" aria-live="polite"></div>
   <div class="slist" id="studioList"></div>
   <div class="end"><button class="seg" id="bBackup">💾 Sauvegarder</button><label class="seg" id="restoreLbl" for="restoreFile">📂 Restaurer</label><input type="file" id="restoreFile" class="vh" accept=".json,application/json"><button class="wide" id="studioClose">Fermer</button></div>
 </div></div>
+<!-- ENREGISTREMENT D'UN MORCEAU (Studio) -->
+<div class="recbox" id="recBox" role="dialog" aria-modal="true" aria-label="Enregistrement">
+  <div class="panel">
+    <div class="step" id="recStep"></div>
+    <div class="phrase" id="recPhrase"></div>
+    <div class="hint" id="recHint"></div>
+    <div class="state" id="recState" aria-live="assertive"></div>
+    <div class="meter" id="recMeter" hidden><i id="recBar"></i></div>
+    <div class="acts" id="recActs"></div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -590,7 +617,7 @@ async function deleteVoix(v){
   loadVoix();
 }
 /* Lecture : Web Audio d'abord, sinon lecteur audio classique. Renvoie true si la voix démarre. */
-async function playVoix(v){
+async function _oldPlayVoix(v){
   try{ speechSynthesis.cancel(); }catch(e){}
   try{ const a=audioCtx(), buf=await a.decodeAudioData(v.buf.slice(0)), s=a.createBufferSource(); s.buffer=buf; s.connect(a.destination); s.start(); return true; }catch(e){}
   try{ const el=new Audio(URL.createObjectURL(new Blob([v.buf],{type:v.type||"audio/mp4"}))); await el.play(); return true; }catch(e){}
@@ -842,12 +869,13 @@ cv.addEventListener("pointerup",end); cv.addEventListener("pointercancel",end);
    Tout ce que l'appli dit est une liste de « morceaux » (ex. ["bé","comme","ballon"]).
    Pour chaque morceau : l'enregistrement de maman s'il existe, sinon la voix de synthèse. */
 const PH=new Map(); // "fr|ballon" -> {k,buf,type,start,end,gain,audio}
-let sayTok=0, curSrc=null;
+let sayTok=0, curSrc=null, curEl=null;
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 function stopSay(){
   sayTok++;
   try{ speechSynthesis.cancel(); }catch(e){}
   if(curSrc){ try{ curSrc.stop(); }catch(e){} curSrc=null; }
+  if(curEl){ try{ curEl.pause(); }catch(e){} curEl=null; }
 }
 function voiceScore(v){
   let s=0; const n=v.name||"";
@@ -903,6 +931,17 @@ async function say(parts,lang="fr",onPart){
   return tok===sayTok;
 }
 const speak=(t,lang)=>say([t],lang);
+/* « Bravo » enregistré par maman : joué comme les autres voix, donc coupé dès que l'appli parle d'autre chose. */
+async function playVoix(v,tok){
+  try{ speechSynthesis.cancel(); }catch(e){}
+  try{
+    const a=audioCtx(), buf=v.audio||(v.audio=await a.decodeAudioData(v.buf.slice(0)));
+    if(tok!=null&&tok!==sayTok) return true;
+    const s=a.createBufferSource(); s.buffer=buf; s.connect(a.destination); s.onended=()=>{ if(curSrc===s) curSrc=null; }; curSrc=s; s.start(); return true;
+  }catch(e){}
+  try{ const el=new Audio(URL.createObjectURL(new Blob([v.buf],{type:v.type||"audio/mp4"}))); if(tok!=null&&tok!==sayTok) return true; curEl=el; await el.play(); return true; }catch(e){}
+  return false;
+}
 
 /* ---- rangement des enregistrements du Studio (IndexedDB, magasin « phrases ») ---- */
 let phStore=true; // false si la tablette refuse de les garder
@@ -965,46 +1004,80 @@ async function micStream(){
   return studioStream;
 }
 function closeStudio(){
-  stopStudioRec(); closeSheet("studioSheet");
+  recClose(); closeSheet("studioSheet");
   if(studioStream){ studioStream.getTracks().forEach(t=>t.stop()); studioStream=null; }
   renderStudioBtn();
 }
 function stopStudioRec(){ if(studioRec&&studioRec.mr.state==="recording"){ clearTimeout(studioRec.t); studioRec.mr.stop(); } }
-async function recordRow(row,btn){
-  if(studioRec){ const same=studioRec.k===row.k; stopStudioRec(); if(same) return; }
-  let stream; try{ stream=await micStream(); }catch(e){ $("studioMsg").textContent="Le micro est refusé. Autorisez le micro pour ce site dans les réglages du navigateur."; return; }
-  stopSay();
-  const mr=new MediaRecorder(stream), chunks=[];
+/* Enregistrement guidé en 3 étapes, dans un grand écran fixe :
+   Prêt → J'enregistre → Réécouter / Refaire / Garder. Rien n'est rangé sans « Garder ». */
+let recRow=null, recDraft=null;
+const nextMissing=row=>{ const rows=catalog()[studioGroup].rows, i=rows.indexOf(row); return rows.slice(i+1).find(r=>!PH.has(r.k))||rows.find(r=>!PH.has(r.k)&&r!==row)||null; };
+function recButtons(list){
+  const box=$("recActs"); box.innerHTML="";
+  list.forEach(([label,cls,fn])=>{ const b=document.createElement("button"); b.className="wide "+cls; b.textContent=label; b.onclick=fn; box.appendChild(b); });
+  const first=box.querySelector("button"); first&&first.focus({preventScroll:true});
+}
+function recShow(row,state,msg){
+  recRow=row; const gr=catalog()[studioGroup];
+  $("recStep").textContent=`${gr.name} · ${gr.rows.indexOf(row)+1} / ${gr.rows.length}`;
+  $("recPhrase").textContent=row.label; $("recPhrase").className="phrase"+(row.lang==="ar"?" ar":"");
+  $("recHint").textContent=row.hint; $("recMeter").hidden=state!=="rec";
+  const st=$("recState"); st.className="state"+(state==="rec"?" live":""); st.textContent=msg||"";
+  if(state==="ready") recButtons([["🎙️ Enregistrer","big go",recStart],["Fermer","quiet",recClose]]);
+  else if(state==="rec") recButtons([["⏹ J'ai fini","big go",stopStudioRec]]);
+  else if(state==="review") recButtons([["✔ Garder","big keep",recKeep],["▶ Réécouter","quiet",()=>playRec(recDraft,sayTok)],["↺ Refaire","quiet",recStart],["Annuler","quiet",recClose]]);
+  $("recBox").classList.add("on");
+}
+function openRec(row){ stopSay(); recDraft=null; recShow(row,"ready",PH.has(row.k)?"Déjà enregistré : le nouvel enregistrement remplacera l'ancien.":"Lisez la phrase, puis appuyez sur Enregistrer."); }
+function recClose(){ stopStudioRec(); stopSay(); recDraft=null; recRow=null; $("recBox").classList.remove("on"); renderStudio(); }
+async function recStart(){
+  const row=recRow; if(!row) return;
+  let stream; try{ stream=await micStream(); }catch(e){ recShow(row,"ready","Le micro est refusé. Autorisez le micro pour ce site dans les réglages du navigateur."); return; }
+  stopSay(); recDraft=null;
+  const mr=new MediaRecorder(stream), chunks=[], MAX=8000, t0=Date.now();
   mr.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
   mr.onstop=async()=>{
-    studioRec=null; const blob=new Blob(chunks,{type:mr.mimeType||"audio/mp4"});
-    if(blob.size<1200){ $("studioMsg").textContent="Trop court : appuyez sur 🎙️, parlez, puis appuyez sur ⏹."; renderStudio(); return; }
-    await savePhrase(row.k,blob);
-    $("studioMsg").textContent=phStore?"✅ Enregistré. Touchez le texte pour l’écouter, ou passez au suivant.":"Enregistré, mais cette tablette refuse de le garder : il sera perdu à la fermeture.";
-    renderStudio(row.k);
+    clearInterval(studioRec&&studioRec.tick); studioRec=null;
+    if(recRow!==row) return;                       // fenêtre fermée entre-temps : on jette
+    const blob=new Blob(chunks,{type:mr.mimeType||"audio/mp4"});
+    if(blob.size<1200){ recShow(row,"ready","Trop court. Appuyez sur Enregistrer, parlez, puis sur « J'ai fini »."); return; }
+    const buf=await blob.arrayBuffer(), info=await analyse(buf);
+    recDraft={k:row.k,buf,type:blob.type,start:info.start,end:info.end,gain:info.gain,audio:info.audio};
+    recShow(row,"review","Écoutez : est-ce bien la phrase en gros ?");
+    playRec(recDraft,sayTok);
   };
-  mr.start(); studioRec={mr,k:row.k,t:setTimeout(stopStudioRec,6000)};
-  btn.textContent="⏹"; btn.classList.add("live"); $("studioMsg").textContent="🔴 Parlez maintenant… puis appuyez sur ⏹ (6 secondes maximum).";
+  mr.start();
+  studioRec={mr,k:row.k,t:setTimeout(stopStudioRec,MAX),tick:setInterval(()=>{ $("recBar").style.width=Math.min(100,(Date.now()-t0)/MAX*100)+"%"; },100)};
+  $("recBar").style.width="0%";
+  recShow(row,"rec","🔴 J'enregistre… parlez maintenant");
 }
-function renderStudio(justDone){
+async function recKeep(){
+  const row=recRow, d=recDraft; if(!row||!d) return;
+  if(phStore){ try{ await phTx("readwrite",st=>st.put({k:d.k,buf:d.buf,type:d.type,start:d.start,end:d.end,gain:d.gain})); }catch(e){ phStore=false; } }
+  PH.set(d.k,d); recDraft=null;
+  const msg=phStore?"✅ Gardé !":"Gardé, mais cette tablette refuse de le garder après fermeture.";
+  const nx=nextMissing(row); renderStudio();
+  if(nx) recShow(nx,"ready",msg+" Phrase suivante :");
+  else { recShow(row,"ready",msg+" Tout cet onglet est enregistré 🎉"); }
+}
+function renderStudio(){
   const groups=catalog(), gr=groups[studioGroup];
   $("studioCount").textContent=`${recCount()} / ${rowCount()} morceaux enregistrés`;
   $("studioTabs").innerHTML=groups.map((x,i)=>`<button class="seg${x.lang==="ar"?" ar":""}" data-g="${i}" aria-pressed="${i===studioGroup}">${x.name} · ${x.rows.filter(r=>PH.has(r.k)).length}/${x.rows.length}</button>`).join("");
   document.querySelectorAll("#studioTabs .seg").forEach(b=>b.onclick=()=>{ stopStudioRec(); studioGroup=+b.dataset.g; renderStudio(); });
   const list=$("studioList"); list.innerHTML="";
-  let nextRow=null, after=!justDone;
   gr.rows.forEach(row=>{
     const has=PH.has(row.k), d=document.createElement("div"); d.className="srow"+(has?" ok":"");
-    if(row.k===justDone) after=true; else if(after&&!has&&!nextRow){ nextRow=d; d.classList.add("next"); }
     d.innerHTML=`<button class="stxt" aria-label="Écouter"><b class="${row.lang==="ar"?"ar":""}">${row.label}</b><small>${row.hint}</small></button><span class="sst">${has?"✅":""}</span>`;
     d.querySelector(".stxt").onclick=()=>say([row.text],row.lang);
-    if(CAN_REC){ const r=document.createElement("button"); r.className="seg rec"; r.textContent="🎙️"; r.setAttribute("aria-label","Enregistrer « "+row.label+" »"); r.onclick=()=>recordRow(row,r); d.appendChild(r); }
+    if(CAN_REC){ const r=document.createElement("button"); r.className="seg rec"; r.textContent="🎙️"; r.setAttribute("aria-label","Enregistrer « "+row.label+" »"); r.onclick=()=>openRec(row); d.appendChild(r); }
+    if(has){ const pl=document.createElement("button"); pl.className="seg"; pl.textContent="▶"; pl.setAttribute("aria-label","Écouter l'enregistrement"); pl.onclick=()=>{ stopSay(); playRec(PH.get(row.k),sayTok); }; d.appendChild(pl); }
     if(has){ const x=document.createElement("button"); x.className="seg"; x.textContent="🗑"; x.setAttribute("aria-label","Supprimer");
       x.onclick=async()=>{ if(!x.dataset.armed){ x.dataset.armed="1"; x.textContent="Suppr. ?"; setTimeout(()=>{ delete x.dataset.armed; x.textContent="🗑"; },3000); return; } await deletePhrase(row.k); renderStudio(); };
       d.appendChild(x); }
     list.appendChild(d);
   });
-  if(nextRow&&justDone){ nextRow.scrollIntoView({block:"center",behavior:reduced()?"auto":"smooth"}); const b=nextRow.querySelector(".rec"); b&&b.focus({preventScroll:true}); }
   $("studioNoMic").hidden=CAN_REC;
   $("bBackup").hidden=$("restoreLbl").hidden=!STANDALONE;
 }
@@ -1053,15 +1126,17 @@ function celebrate(lang,fresh,again,next,nextLabel){
   const nm=opts.name||"", fr=nm?BRAVO_FR[k].replace(" !"," "+nm+" !"):BRAVO_FR[k];
   $("bbig").innerHTML=emo(st?st[0]:"⭐"); $("bgift").textContent=st?"Nouvel autocollant : "+st[1]:"";
   $("bw").textContent=fr; $("bwa").textContent=BRAVO_AR[k]; $("bNext2").textContent=nextLabel;
-  bravoCb={again,next}; stopSay();
+  bravoCb={again,next}; stopSay(); const tok=sayTok;
   $("bravo").classList.add("on"); burst(); fanfare();
   setTimeout(async()=>{
-    if(voix.length){ if(await playVoix(voix[rnd(voix.length)])) return; toast("La voix de maman n'a pas pu être lue : vérifiez-la dans l'espace parents."); }
+    if(tok!==sayTok) return;
+    if(voix.length){ if(await playVoix(voix[rnd(voix.length)],tok)) return; toast("La voix de maman n'a pas pu être lue : vérifiez-la dans l'espace parents."); }
+    if(tok!==sayTok) return;
     speak(lang==="ar"?BRAVO_AR[k]+(nm?" "+nm:""):fr+(st?" Tu gagnes un "+st[1]+" !":""),lang);
   },650);
 }
-$("bAgain").onclick=()=>{ hideBravo(); bravoCb.again&&bravoCb.again(); };
-$("bNext2").onclick=()=>{ hideBravo(); bravoCb.next&&bravoCb.next(); };
+$("bAgain").onclick=()=>{ stopSay(); hideBravo(); bravoCb.again&&bravoCb.again(); };
+$("bNext2").onclick=()=>{ stopSay(); hideBravo(); bravoCb.next&&bravoCb.next(); };
 function burst(){
   if(reduced()) return;
   const b=$("burst"); b.innerHTML=""; const W=innerWidth, H=innerHeight;
